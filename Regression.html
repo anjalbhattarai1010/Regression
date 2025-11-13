@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Housing Price Predictor (DL_Net ONNX)</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      max-width: 900px;
+      margin: 0 auto;
+      padding: 20px;
+      background: #f5f5f5;
+    }
+    h1 {
+      text-align: center;
+    }
+    .card {
+      background: #ffffff;
+      border-radius: 8px;
+      padding: 20px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+      margin-top: 20px;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 15px;
+    }
+    label {
+      font-size: 0.9rem;
+      font-weight: 600;
+      display: block;
+      margin-bottom: 4px;
+    }
+    input[type="number"] {
+      width: 100%;
+      padding: 6px 8px;
+      border-radius: 4px;
+      border: 1px solid #ccc;
+      box-sizing: border-box;
+    }
+    button {
+      margin-top: 15px;
+      padding: 10px 16px;
+      border: none;
+      border-radius: 4px;
+      background: #007bff;
+      color: #fff;
+      font-size: 1rem;
+      cursor: pointer;
+    }
+    button:disabled {
+      background: #9bbcf5;
+      cursor: not-allowed;
+    }
+    #result {
+      margin-top: 20px;
+      font-size: 1.1rem;
+      font-weight: bold;
+    }
+    .status {
+      margin-top: 8px;
+      font-size: 0.9rem;
+      color: #555;
+    }
+    .error {
+      color: #b00020;
+      font-weight: 600;
+    }
+  </style>
+</head>
+<body>
+  <h1>Housing Price Predictor (DL_Net ONNX)</h1>
+
+  <div class="card">
+    <p>Enter the housing features below and click <strong>Predict</strong> to estimate the <em>median house value</em>.</p>
+
+    <form id="predict-form">
+      <div class="grid">
+        <div>
+          <label for="longitude">Longitude</label>
+          <input type="number" id="longitude" step="0.0001" value="-122.0" required />
+        </div>
+        <div>
+          <label for="latitude">Latitude</label>
+          <input type="number" id="latitude" step="0.0001" value="37.0" required />
+        </div>
+        <div>
+          <label for="housing_median_age">Housing Median Age</label>
+          <input type="number" id="housing_median_age" step="1" value="30" required />
+        </div>
+        <div>
+          <label for="total_rooms">Total Rooms</label>
+          <input type="number" id="total_rooms" step="1" value="1500" required />
+        </div>
+        <div>
+          <label for="total_bedrooms">Total Bedrooms</label>
+          <input type="number" id="total_bedrooms" step="1" value="300" required />
+        </div>
+        <div>
+          <label for="population">Population</label>
+          <input type="number" id="population" step="1" value="800" required />
+        </div>
+        <div>
+          <label for="households">Households</label>
+          <input type="number" id="households" step="1" value="350" required />
+        </div>
+        <div>
+          <label for="median_income">Median Income</label>
+          <input type="number" id="median_income" step="0.01" value="3.0" required />
+        </div>
+      </div>
+
+      <button type="submit" id="predict-btn" disabled>Loading model...</button>
+      <div class="status" id="status">Initializing ONNX Runtime and loading model…</div>
+    </form>
+
+    <div id="result"></div>
+  </div>
+
+  <!-- ONNX Runtime Web (from CDN) -->
+  <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/ort.min.js"></script>
+  <script>
+    let session = null;
+
+    async function loadModel() {
+      const statusEl = document.getElementById('status');
+      const btn = document.getElementById('predict-btn');
+
+      try {
+        statusEl.textContent = 'Loading ONNX model (DL_Net_HousingData_best.onnx)...';
+        // The .onnx file must be in the same directory as this HTML file
+        session = await ort.InferenceSession.create('DL_Net_HousingData_best.onnx');
+        statusEl.textContent = 'Model loaded. Ready!';
+        btn.textContent = 'Predict';
+        btn.disabled = false;
+      } catch (err) {
+        console.error(err);
+        statusEl.innerHTML = '<span class="error">Error loading model. Check console and file path.</span>';
+      }
+    }
+
+    // Call loadModel when page loads
+    loadModel();
+
+    document.getElementById('predict-form').addEventListener('submit', async (event) => {
+      event.preventDefault();
+
+      const resultEl = document.getElementById('result');
+      const statusEl = document.getElementById('status');
+
+      if (!session) {
+        statusEl.innerHTML = '<span class="error">Model not loaded yet.</span>';
+        return;
+      }
+
+      try {
+        statusEl.textContent = 'Running inference...';
+
+        // 1. Read values from inputs in the SAME ORDER as training:
+        const longitude          = parseFloat(document.getElementById('longitude').value);
+        const latitude           = parseFloat(document.getElementById('latitude').value);
+        const housingMedianAge   = parseFloat(document.getElementById('housing_median_age').value);
+        const totalRooms         = parseFloat(document.getElementById('total_rooms').value);
+        const totalBedrooms      = parseFloat(document.getElementById('total_bedrooms').value);
+        const population         = parseFloat(document.getElementById('population').value);
+        const households         = parseFloat(document.getElementById('households').value);
+        const medianIncome       = parseFloat(document.getElementById('median_income').value);
+
+        const inputArray = [
+          longitude,
+          latitude,
+          housingMedianAge,
+          totalRooms,
+          totalBedrooms,
+          population,
+          households,
+          medianIncome
+        ];
+
+        // 2. Create Float32Array and Tensor: shape [1, 8]
+        const inputTensor = new ort.Tensor('float32', Float32Array.from(inputArray), [1, 8]);
+
+        // 3. Run inference: input name must match the export ("input1")
+        const feeds = { input1: inputTensor };
+        const outputMap = await session.run(feeds);
+
+        // 4. Output name must match the export ("output1")
+        const outputTensor = outputMap.output1;
+        const prediction = outputTensor.data[0];
+
+        statusEl.textContent = 'Inference complete.';
+        resultEl.textContent = 'Predicted Median House Value: ' + prediction.toFixed(2);
+      } catch (err) {
+        console.error(err);
+        statusEl.innerHTML = '<span class="error">Error during inference. See console.</span>';
+      }
+    });
+  </script>
+</body>
+</html>
